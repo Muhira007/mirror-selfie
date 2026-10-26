@@ -95,7 +95,10 @@ class RtcEngine(
         capture?.changeCaptureFormat(size.first, size.second, 24)
     }
 
-    fun offer() = peer.createOffer(object : SdpAdapter() {
+    fun offer(restart: Boolean = false) {
+        if (closed) return
+        if (restart) peer.restartIce()
+        peer.createOffer(object : SdpAdapter() {
         override fun onCreateSuccess(description: SessionDescription) = dispatch {
             if (!closed) peer.setLocalDescription(object : SdpAdapter() {
                 override fun onSetSuccess() = dispatch {
@@ -111,7 +114,8 @@ class RtcEngine(
             }, description)
         }
         override fun onCreateFailure(error: String) { status("Layar belum bisa dibagikan. Coba buat koneksi baru.") }
-    }, MediaConstraints())
+    }, MediaConstraints().apply { if (restart) mandatory.add(MediaConstraints.KeyValuePair("IceRestart", "true")) })
+    }
 
     fun receive(message: JSONObject) {
         if (closed) return

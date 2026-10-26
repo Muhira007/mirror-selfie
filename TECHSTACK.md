@@ -280,3 +280,19 @@ Pengguna kemudian menginstruksikan “kerjakan”, sehingga implementasi P1 tela
 - Tombol membuka kamera membawa kembali aktivitas kamera yang ada sehingga tidak memaksa mode Video menggantikan mode Film. Hasil rinci: [P1_REPORT.md](P1_REPORT.md).
 
 Sumber API tambahan untuk kontrol opsional: [AccessibilityService](https://developer.android.com/reference/android/accessibilityservice/AccessibilityService), [panduan layanan aksesibilitas](https://developer.android.com/guide/topics/ui/accessibility/service).
+
+## 14. Kamera jarak jauh dan pemulihan koneksi — 2026-10-18
+
+Bagian ini memperbarui blueprint P1 di atas. Kamera internal CameraX menjadi sasaran kontrol lintas merek; kontrol Aksesibilitas kamera OEM tidak digunakan lagi.
+
+- `CameraSnapshot` membawa mode, kombinasi resolusi/FPS, pilihan ISO/shutter, dukungan WB/fokus/kunci AE, pengaturan terpilih, dan durasi recorder. Ukuran pesan serta jumlah pilihan dibatasi.
+- Fokus memakai koordinat ternormalisasi terhadap seluruh layar sumber. Monitor menggunakan ukuran renderer aspect-fit yang sebenarnya dan membalik X saat cermin aktif. Pengirim memetakan koordinat ke PreviewView menggunakan meteringPointFactory; perintah dari orientasi lama ditolak.
+- Keberhasilan fokus dibaca dari Future CameraX. Kunci fokus menggunakan disableAutoCancel. Kunci AE diperiksa melalui CameraCharacteristics dan hanya dipakai saat exposure otomatis.
+- Kontrol manual diperiksa melalui Camera2CameraInfo: ISO/shutter memerlukan MANUAL_SENSOR; WB memerlukan MANUAL_POST_PROCESSING dan AWB_OFF. ISO dan shutter diisi berpasangan. Shutter video dibatasi durasi satu frame. Permintaan ISO/shutter/WB dikonfirmasi setelah CaptureRequestOptions diterapkan. Konversi Kelvin masih pendekatan dan belum kalibrasi sensor.
+- Format diperiksa per resolusi. FPS hanya ditetapkan melalui SessionConfig. Konfigurasi FPS ganda pada VideoCapture dan SessionConfig menyebabkan IllegalArgumentException pada CameraX 1.6.2; pengaturan ganda telah dihapus. Mode/format yang gagal dibuka dikembalikan ke pengaturan sebelumnya.
+- Status REC berasal dari VideoRecordEvent.Start/Status/Finalize. Baterai menggunakan BatteryManager; ruang kosong pengirim menggunakan StatFs pada penyimpanan bersama utama.
+- Signaling tetap WSS dengan pin sertifikat, QR sekali pakai, satu monitor aktif, deduplikasi perintah, dan pembatasan laju shutter. Token resume acak 256-bit diberikan setelah autentikasi pertama; token ini terpisah dari QR dan hanya berada di memori.
+- Gangguan transport mempertahankan PeerConnection serta grant MediaProjection. Monitor membuka ulang signaling dengan token resume, lalu pengirim melakukan ICE restart. Frame dan status baru diperlukan sebelum kontrol diaktifkan kembali.
+- Jendela sambung ulang dua menit. Proses/sesi pengirim harus tetap hidup dengan alamat lokal yang sama. Berhenti secara eksplisit mengakhiri sesi. Proses mati, sesi berakhir, atau alamat berubah tetap membutuhkan QR baru.
+
+Referensi: [FocusMeteringAction](https://developer.android.com/reference/androidx/camera/core/FocusMeteringAction), [CameraCharacteristics](https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics), [konfigurasi CameraX](https://developer.android.com/media/camera/camerax/configuration). Bukti dan uji yang belum selesai dicatat di PROGRESS.md.

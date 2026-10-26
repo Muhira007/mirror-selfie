@@ -23,7 +23,7 @@
         </activity>
         <service android:name=".ProjectionService" android:exported="false"
             android:foregroundServiceType="mediaProjection" />
-        <activity android:name=".CameraActivity" android:exported="false" android:configChanges="orientation|screenSize|smallestScreenSize" />
-        <activity android:name=".ScanActivity" android:exported="false" />
+        <activity android:name=".CameraActivity" android:exported="true" android:configChanges="orientation|screenSize|smallestScreenSize" />
+        <activity android:name=".ScanActivity" android:exported="true" />
     </application>
 </manifest>

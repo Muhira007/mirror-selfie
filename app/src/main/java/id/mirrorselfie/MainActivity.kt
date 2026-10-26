@@ -20,9 +20,13 @@ import android.provider.Settings
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.widget.*
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
@@ -30,6 +34,8 @@ import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 
 class MainActivity : Activity() {
+    private lateinit var root: LinearLayout
+    private lateinit var header: LinearLayout
     private lateinit var body: LinearLayout
     private lateinit var status: TextView
     private lateinit var statusCard: LinearLayout
@@ -41,6 +47,11 @@ class MainActivity : Activity() {
     private var controlFeedback: TextView? = null
     private var waitingVideo: View? = null
     private var video: SurfaceViewRenderer? = null
+    private var viewerHud: FrameLayout? = null
+    private var recordingStatus: TextView? = null
+    private var connectionWarning: TextView? = null
+    private val remoteTools = mutableListOf<View>()
+    private var viewerControlsVisible = true
     private var currentPage = ""
     private var displayedCode = ""
     private var address = ""
@@ -55,11 +66,12 @@ class MainActivity : Activity() {
         address = savedInstanceState?.getString("address").orEmpty()
         joinDraft = savedInstanceState?.getString("joinDraft").orEmpty()
         mirrored = savedInstanceState?.getBoolean("mirrored") ?: false
+        viewerControlsVisible = savedInstanceState?.getBoolean("viewerControlsVisible") ?: true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = Studio.background
         window.navigationBarColor = Studio.background
-        val root = column().apply { setBackgroundColor(Studio.background); fitsSystemWindows = true }
-        val header = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(20), dp(12), dp(20), dp(12)) }
+        root = column().apply { setBackgroundColor(Studio.background); fitsSystemWindows = true }
+        header = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(20), dp(12), dp(20), dp(12)) }
         back = iconButton("back", R.string.back) { showHome() }.apply { visibility = View.GONE }
         header.addView(back, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(8) })
         header.addView(ImageView(this).apply { setImageResource(R.mipmap.ic_launcher); importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(10) })
@@ -90,6 +102,7 @@ class MainActivity : Activity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("address", address); outState.putString("joinDraft", joinDraft); outState.putBoolean("mirrored", mirrored)
+        outState.putBoolean("viewerControlsVisible", viewerControlsVisible)
         super.onSaveInstanceState(outState)
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); handleTestIntent(intent) }
@@ -114,19 +127,38 @@ class MainActivity : Activity() {
         } else if (state.mode == "host") {
             if (currentPage != "host" || displayedCode != state.code) showHost(state.code)
         } else if (currentPage !in setOf("home", "join", "setup")) showHome()
+        if (currentPage == "viewer") statusCard.visibility = View.GONE
         networkMetric?.text = state.rttMs?.let { getString(R.string.rtt_value, it) } ?: getString(R.string.rtt_waiting)
         controlFeedback?.text = state.controlText.ifEmpty { getString(when { state.camera.recording->R.string.control_recording; state.camera.available->R.string.control_ready; else->R.string.control_hint }) }
-        photoAction?.let { it.isEnabled=state.camera.canTakePhoto; it.alpha=if(it.isEnabled) 1f else .35f }
+        photoAction?.let { it.isEnabled=state.live && state.camera.canTakePhoto; it.alpha=if(it.isEnabled) 1f else .35f }
         videoAction?.let {
-            it.isEnabled=state.camera.canToggleVideo; it.alpha=if(it.isEnabled) 1f else .35f
+            it.isEnabled=state.live && state.camera.canToggleVideo; it.alpha=if(it.isEnabled) 1f else .35f
             (it.getChildAt(1) as TextView).setText(if(state.camera.recording) R.string.stop_recording else R.string.record_stop)
             it.background=Studio.touch(this,if(state.camera.recording) Studio.coral else Studio.mint,18)
         }
         waitingVideo?.visibility = if (state.frames == 0L) View.VISIBLE else View.GONE
+        remoteTools.forEach { it.isEnabled = state.live && state.camera.available && !state.camera.busy; it.alpha = if (it.isEnabled) 1f else .35f }
+        video?.alpha = if (state.live || state.frames == 0L) 1f else .3f
+        connectionWarning?.apply {
+            text = if (state.reconnecting) "Menyambung ulang…\nCek Wi-Fi atau hotspot kedua HP" else "Belum ada gambar terbaru\nMemeriksa koneksi…"
+            visibility = if (!state.live && (state.frames > 0 || state.reconnecting)) View.VISIBLE else View.GONE
+        }
+        recordingStatus?.apply {
+            val cameraBattery = if (state.remoteBattery >= 0) "Kamera ${state.remoteBattery}%" else "Kamera —"
+            val monitorBattery = if (state.localBattery >= 0) "Monitor ${state.localBattery}%" else "Monitor —"
+            val storage = if (state.freeBytes >= 0) "Sisa %.1f GB".format(java.util.Locale.ROOT, state.freeBytes / 1_000_000_000.0) else "Sisa —"
+            val rec = if (!state.live) "Status belum terbarui" else if (state.camera.recording) "● REC ${recordingLabel(state.camera.recordedMs)}" else if (state.camera.busy) "Memproses…" else "Siap"
+            text = "$rec · $cameraBattery · $monitorBattery\n$storage" + if (state.camera.focusLocked && state.live) " · Fokus terkunci" else ""
+            setTextColor(if (!state.live) Studio.muted else if (state.camera.recording) Studio.coral else Studio.text)
+        }
     }
 
     private fun clear(page: String) {
         releaseVideo(); body.removeAllViews(); currentPage = page
+        viewerHud = null; recordingStatus = null; connectionWarning = null; remoteTools.clear()
+        header.visibility = if (page == "viewer") View.GONE else View.VISIBLE
+        statusCard.visibility = if (page == "viewer" || (Session.state.mode == "idle" && Session.state.status == "Siap" && !captureCancelled)) View.GONE else View.VISIBLE
+        applyViewerWindow(page == "viewer")
         if (page != "join") getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(body.windowToken,0)
         networkMetric = null; controlFeedback = null; waitingVideo = null; photoAction=null; videoAction=null
         back.visibility = if (page == "setup" || page == "join") View.VISIBLE else View.GONE
@@ -325,69 +357,189 @@ class MainActivity : Activity() {
         content.addView(action(R.string.network_settings,"wifi",primary=false) { openConnectionSettings() },margins(top=18))
     }
 
+    @Suppress("DEPRECATION")
+    private fun applyViewerWindow(fullscreen: Boolean) {
+        root.fitsSystemWindows = !fullscreen
+        if (Build.VERSION.SDK_INT >= 28) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode = if (fullscreen) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(!fullscreen)
+            window.insetsController?.apply {
+                systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                if (fullscreen) hide(WindowInsets.Type.systemBars()) else show(WindowInsets.Type.systemBars())
+            }
+        } else {
+            window.decorView.systemUiVisibility = if (fullscreen) (
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                ) else View.SYSTEM_UI_FLAG_VISIBLE
+        }
+        root.requestApplyInsets()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && currentPage == "viewer") applyViewerWindow(true)
+    }
+
+    private fun toggleViewerControls() {
+        viewerControlsVisible = !viewerControlsVisible
+        viewerHud?.visibility = if (viewerControlsVisible) View.VISIBLE else View.GONE
+    }
+
     private fun showViewer() {
         clear("viewer")
-        val landscape=resources.configuration.orientation==Configuration.ORIENTATION_LANDSCAPE
-        val stage=LinearLayout(this).apply {
-            orientation=if(landscape) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
-            setPadding(dp(12),0,dp(12),dp(12))
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val screen = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            setOnClickListener { toggleViewerControls() }
         }
-        body.addView(stage,LinearLayout.LayoutParams(-1,-1))
-        val screen=FrameLayout(this).apply { background=Studio.shape(this@MainActivity,Color.BLACK,22); clipToOutline=true }
-        stage.addView(screen,if(landscape) LinearLayout.LayoutParams(0,-1,1f).apply { marginEnd=dp(12) } else LinearLayout.LayoutParams(-1,0,1f).apply { bottomMargin=dp(12) })
-        video=SurfaceViewRenderer(this).also {
-            it.init(Session.eglContext,null); it.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
+        body.addView(screen, LinearLayout.LayoutParams(-1, -1))
+        video = SurfaceViewRenderer(this).also {
+            it.init(Session.eglContext, null)
+            it.setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
             it.setEnableHardwareScaler(true); it.setMirror(mirrored)
-            // WRAP_CONTENT preserves aspect-fit; MATCH_PARENT causes source cropping.
-            screen.addView(it,FrameLayout.LayoutParams(-2,-2,Gravity.CENTER)); Session.renderer=it
+            // Keep every edge visible, including when the two phones have different ratios.
+            screen.addView(it, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+            Session.renderer = it
+            it.setOnClickListener { toggleViewerControls() }
+            val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(event: MotionEvent) = true
+                override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+                    focusFromMonitor(event, false); return true
+                }
+                override fun onLongPress(event: MotionEvent) { focusFromMonitor(event, true) }
+                override fun onDoubleTap(event: MotionEvent): Boolean { toggleViewerControls(); return true }
+            })
+            it.setOnTouchListener { _, event -> detector.onTouchEvent(event) }
+            it.contentDescription = getString(R.string.viewer_focus_gestures)
         }
-        waitingVideo=column().apply {
-            gravity=Gravity.CENTER
-            addView(StudioIcon(this@MainActivity,"monitor"),LinearLayout.LayoutParams(dp(42),dp(42)).apply { gravity=Gravity.CENTER })
-            addView(label(R.string.waiting_video,14).apply{gravity=Gravity.CENTER},margins(top=14))
+        waitingVideo = column().apply {
+            gravity = Gravity.CENTER
+            addView(StudioIcon(this@MainActivity, "monitor"), LinearLayout.LayoutParams(dp(42), dp(42)).apply { gravity = Gravity.CENTER })
+            addView(label(R.string.waiting_video, 14).apply { gravity = Gravity.CENTER }, margins(top = 14))
         }
-        screen.addView(waitingVideo,FrameLayout.LayoutParams(-1,-1))
-        val dock=column().apply {
-            setPadding(dp(16),dp(14),dp(16),dp(12)); background=Studio.shape(this@MainActivity,Studio.surface,24)
+        screen.addView(waitingVideo, FrameLayout.LayoutParams(-1, -1))
+        val hud = FrameLayout(this).apply {
+            visibility = if (viewerControlsVisible) View.VISIBLE else View.GONE
+            // Insets protect controls from camera cutouts and gesture areas; video stays edge-to-edge.
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setOnApplyWindowInsetsListener { view, insets ->
+                if (Build.VERSION.SDK_INT >= 30) {
+                    val safe = insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                    view.setPadding(safe.left + dp(12), safe.top + dp(12), safe.right + dp(12), safe.bottom + dp(12))
+                } else {
+                    val safe = android.graphics.Rect()
+                    if (Build.VERSION.SDK_INT >= 28) insets.displayCutout?.let {
+                        safe.set(it.safeInsetLeft, it.safeInsetTop, it.safeInsetRight, it.safeInsetBottom)
+                    }
+                    @Suppress("DEPRECATION")
+                    view.setPadding(maxOf(insets.stableInsetLeft, safe.left) + dp(12),
+                        maxOf(insets.stableInsetTop, safe.top) + dp(12),
+                        maxOf(insets.stableInsetRight, safe.right) + dp(12),
+                        maxOf(insets.stableInsetBottom, safe.bottom) + dp(12))
+                }
+                insets
+            }
         }
-        val dockHolder=if(landscape) ScrollView(this).apply { isFillViewport=true; isVerticalScrollBarEnabled=false; addView(dock) } else dock
-        stage.addView(dockHolder,if(landscape) LinearLayout.LayoutParams(dp(270),-1) else LinearLayout.LayoutParams(-1,-2))
-        val metrics=row().apply { gravity=Gravity.CENTER_VERTICAL }
-        metrics.addView(label(R.string.viewer_live,9,Studio.mint,true).apply{letterSpacing=.06f},LinearLayout.LayoutParams(0,-2,1f))
-        networkMetric=label(R.string.rtt_waiting,10,Studio.muted).apply {
-            setPadding(dp(4),dp(8),dp(4),dp(8)); minHeight=dp(40); gravity=Gravity.CENTER_VERTICAL
+        viewerHud = hud
+        screen.addView(hud, FrameLayout.LayoutParams(-1, -1))
+        hud.requestApplyInsets()
+
+        val toolbar = row().apply { gravity = Gravity.CENTER_VERTICAL }
+        fun floatingIcon(icon: String, title: Int, onClick: () -> Unit) = iconButton(icon, title, onClick).apply {
+            background = Studio.touch(this@MainActivity, 0x99000000.toInt(), 24)
+        }
+        toolbar.addView(floatingIcon("close", R.string.disconnect) { Session.stop() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        networkMetric = label(R.string.rtt_waiting, 11, Studio.text).apply {
+            gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = Studio.shape(this@MainActivity, 0x99000000.toInt(), 24)
+            minHeight = dp(48)
             setOnClickListener { toast(R.string.rtt_help) }
         }
-        metrics.addView(networkMetric); dock.addView(metrics)
-        val shutter=row()
-        photoAction=action(R.string.photo,"camera",primary=false) { Session.controlCamera("photo") }
-        videoAction=action(R.string.record_stop,"record",primary=true) { Session.controlCamera("video") }
-        shutter.addView(photoAction,LinearLayout.LayoutParams(0,-2,1f).apply { marginEnd=dp(5) })
-        shutter.addView(videoAction,LinearLayout.LayoutParams(0,-2,1.4f).apply { marginStart=dp(5) })
-        dock.addView(shutter,margins(top=6))
-        val options=row()
-        val mirror=action(if(mirrored) R.string.mirror_on else R.string.mirror,"mirror",primary=false) {}
+        toolbar.addView(networkMetric, LinearLayout.LayoutParams(-2, dp(48)).apply { marginStart = dp(8) })
+        val mirror = floatingIcon("mirror", if (mirrored) R.string.mirror_on else R.string.mirror) {}
         fun updateMirror() {
-            (mirror.getChildAt(1) as TextView).setText(if(mirrored) R.string.mirror_on else R.string.mirror)
-            mirror.isSelected=mirrored
-            mirror.background=Studio.touch(this,Studio.raised,18,if(mirrored) Studio.mint else null)
+            mirror.isSelected = mirrored
+            mirror.contentDescription = getString(if (mirrored) R.string.mirror_on else R.string.mirror)
+            mirror.background = Studio.touch(this, 0x99000000.toInt(), 24, if (mirrored) Studio.mint else null)
         }
         updateMirror()
-        mirror.setOnClickListener {
-            mirrored=!mirrored; video?.setMirror(mirrored)
-            updateMirror()
+        mirror.setOnClickListener { mirrored = !mirrored; video?.setMirror(mirrored); updateMirror() }
+        toolbar.addView(mirror, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) })
+        toolbar.addView(floatingIcon("hide", R.string.viewer_hide_controls) { toggleViewerControls() }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(8) })
+        hud.addView(toolbar, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+
+        val dock = column().apply {
+            setPadding(dp(10), dp(8), dp(10), dp(10))
+            background = Studio.shape(this@MainActivity, 0x99000000.toInt(), 24)
         }
-        options.addView(mirror,LinearLayout.LayoutParams(0,-2,1f).apply{marginEnd=dp(5)})
-        options.addView(action(R.string.disconnect,"close",primary=false,danger=true) { Session.stop() },LinearLayout.LayoutParams(0,-2,1f).apply{marginStart=dp(5)})
-        if(landscape) for(i in 0 until options.childCount) {
-            val button=options.getChildAt(i) as LinearLayout
-            button.setPadding(dp(10),dp(12),dp(10),dp(12))
-            (button.getChildAt(1) as TextView).textSize=13f
-            (button.getChildAt(0).layoutParams as LinearLayout.LayoutParams).apply { width=dp(17); height=dp(17); marginEnd=dp(7) }
+        val tools = row().apply { gravity = Gravity.CENTER }
+        for ((icon, title, command) in listOf(
+            Triple("zoomOut", R.string.zoom_out, "zoomOut"), Triple("zoomIn", R.string.zoom_in, "zoomIn"),
+            Triple("torch", R.string.torch, "torch"), Triple("timer", R.string.timer, "timer"), Triple("grid", R.string.grid, "grid"),
+            Triple("settings", R.string.remote_settings, "settings")
+        )) {
+            val button = iconButton(icon, title) {
+                if (command == "settings") RemoteCameraSettings.show(this) else Session.controlCamera(command)
+            }
+            remoteTools += button
+            tools.addView(button, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
-        dock.addView(options,margins(top=8))
-        controlFeedback=label(R.string.control_hint,11,Studio.muted).apply { gravity=Gravity.CENTER; accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE }
-        dock.addView(controlFeedback,margins(top=10))
+        dock.addView(tools)
+        val shutter = row()
+        photoAction = action(R.string.photo, "camera", primary = false) { Session.controlCamera("photo") }
+        videoAction = action(R.string.record_stop, "record") { Session.controlCamera("video") }
+        shutter.addView(photoAction, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(4) })
+        shutter.addView(videoAction, LinearLayout.LayoutParams(0, -2, 1.4f).apply { marginStart = dp(4) })
+        dock.addView(shutter, margins(top = 4))
+        controlFeedback = label(R.string.control_hint, 11, Studio.text).apply {
+            gravity = Gravity.CENTER
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        dock.addView(controlFeedback, margins(top = 8))
+        // In landscape keep the controls to one side instead of covering the entire lower edge.
+        hud.addView(dock, FrameLayout.LayoutParams(if (landscape) dp(320) else -1, -2,
+            Gravity.BOTTOM or if (landscape) Gravity.END else Gravity.CENTER_HORIZONTAL))
+        recordingStatus = label("", 11, Studio.text).apply {
+            gravity = Gravity.CENTER; setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = Studio.shape(this@MainActivity, 0x99000000.toInt(), 16)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+        screen.addView(recordingStatus, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = dp(76) })
+        recordingStatus?.setOnApplyWindowInsetsListener { view, insets ->
+            val top = if (Build.VERSION.SDK_INT >= 30) insets.getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout()).top
+                else @Suppress("DEPRECATION") insets.stableInsetTop
+            (view.layoutParams as FrameLayout.LayoutParams).apply { topMargin = top + dp(76) }
+            view.requestLayout(); insets
+        }
+        recordingStatus?.requestApplyInsets()
+        connectionWarning = label("", 16, Studio.text, true).apply {
+            gravity = Gravity.CENTER; setPadding(dp(20), dp(16), dp(20), dp(16))
+            background = Studio.shape(this@MainActivity, 0xDD091319.toInt(), 20)
+            visibility = View.GONE; accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
+        screen.addView(connectionWarning, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
+    }
+
+    private fun focusFromMonitor(event: MotionEvent, lock: Boolean) {
+        val state = Session.state
+        if (!state.live || !state.camera.available) return
+        if (!state.camera.focusSupported) { Toast.makeText(this, "Lensa ini memakai fokus tetap.", Toast.LENGTH_SHORT).show(); return }
+        val surface = video ?: return
+        val point = FocusCoordinates.fromMonitor(event.x, event.y, surface.width, surface.height, mirrored) ?: return
+        Session.controlCamera(if (lock) "focusLock" else "focus", x = point.first, y = point.second, rotation = state.camera.rotation)
+        val marker = View(this).apply { background = Studio.shape(this@MainActivity, Color.TRANSPARENT, 10, Studio.mint) }
+        val stage = surface.parent as FrameLayout
+        stage.addView(marker, FrameLayout.LayoutParams(dp(48), dp(48)).apply {
+            leftMargin = (surface.left + event.x - dp(24)).toInt(); topMargin = (surface.top + event.y - dp(24)).toInt()
+        })
+        marker.postDelayed({ stage.removeView(marker) }, 800)
     }
 
     private fun intro(content:LinearLayout,title:Int,description:Int) {

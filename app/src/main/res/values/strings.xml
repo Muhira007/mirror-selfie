@@ -56,6 +56,8 @@
     <string name="open_camera">Buka kamera</string>
     <string name="stop_sharing">Selesai berbagi</string>
     <string name="viewer_live">Layar langsung</string>
+    <string name="viewer_toggle_controls">Ketuk untuk tampilkan atau sembunyikan kontrol</string>
+    <string name="viewer_hide_controls">Sembunyikan kontrol</string>
     <string name="waiting_video">Menunggu video…</string>
     <string name="photo">Foto</string>
     <string name="record_stop">Rekam</string>
@@ -104,5 +106,18 @@
     <string name="video_mode_unavailable">Format tidak didukung perangkat.</string>
     <string name="cancel">Batal</string>
     <string name="aspect_ratio">Rasio</string>
+    <string name="zoom_in">+</string>
+    <string name="zoom_out">-</string>
+    <string name="torch">Lampu</string>
+    <string name="timer">Timer</string>
+    <string name="grid">Garis</string>
+    <string name="camera_focused">Fokus diatur</string>
+    <string name="pro_mode">PRO</string>
+    <string name="pro_iso">ISO</string>
+    <string name="pro_shutter">S</string>
+    <string name="pro_wb">WB (K)</string>
+    <string name="pro_auto">AUTO</string>
+    <string name="remote_settings">Pengaturan kamera</string>
+    <string name="viewer_focus_gestures">Ketuk untuk fokus, tahan untuk kunci fokus, ketuk dua kali untuk kontrol</string>
 </resources>
 

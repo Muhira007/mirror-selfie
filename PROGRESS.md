@@ -150,3 +150,47 @@ P0 dan P1 selesai. Sebagian fondasi P2/P3 turut dibuat untuk pengujian; keseluru
 | 2026-10-17 | Memperjelas pertukaran peran perangkat | Pengirim/monitor dapat dipilih pada kedua HP. Susunan vivo sebagai pengirim belum diuji; pembuka kamera dan kontrol shutter saat ini khusus realme |
 
 Setiap pembaruan progres berikutnya harus mencatat pekerjaan nyata, hasil pemeriksaan, dan masalah yang masih terbuka. Jangan menandai sebuah fitur selesai hanya karena desainnya sudah ditulis.
+
+## 9. Monitor frameless — 2026-10-18
+
+- Header aplikasi, kartu status, margin, dan sudut membulat pada viewport monitor dihapus. Video menggunakan seluruh area layar dengan status bar/navigation bar tersembunyi.
+- Aspect-fit dipertahankan supaya keempat tepi sumber terlihat. Perbedaan rasio atau orientasi kedua HP dapat menghasilkan ruang hitam.
+- Kontrol mengambang: putuskan, RTT, cermin, sembunyikan kontrol, zoom, lampu, timer, garis, foto, dan rekam/stop. Ketuk video atau area kosong untuk menyembunyikan/menampilkan kontrol. Kondisi ini dipertahankan saat rotasi dan pemulihan Activity.
+- Insets notch dan area navigasi hanya diterapkan pada kontrol. Dalam landscape, panel kamera berada di kanan bawah.
+- Verifikasi: assembleDebug, testDebugUnitTest (8 tes, 0 gagal), dan lintDebug lulus (0 error; warning masih ada). Pemeriksaan perangkat dilakukan dengan realme sebagai pengirim dan vivo sebagai monitor melalui jaringan lokal.
+- Terverifikasi pada vivo: viewport 720 × 1600 tanpa header/bingkai monitor, tampil/sembunyi kontrol lewat video dan ruang hitam, cermin aktif/nonaktif, rotasi ke landscape dengan sumber portrait tetap utuh, serta header kembali setelah sesi diputuskan. Pengaturan rotasi HP dikembalikan ke kondisi awal. Screenshot lokal ada di `artifacts/monitor-frameless/` (diabaikan Git).
+- Android 8–11 dan perangkat dengan notch berbeda belum diuji langsung. Uji sesi panjang dan ukuran font besar belum dilakukan untuk tampilan baru ini.
+
+## 10. Fokus, pengaturan, status rekaman, sambung ulang — 2026-10-18
+
+Versi pengembangan 0.4.0 (versionCode 4). Empat fitur pilihan pengguna diimplementasikan; batas uji perangkat di bawah masih berlaku.
+
+### Implementasi
+
+- Monitor: ketuk gambar untuk fokus, tahan untuk kunci fokus, ketuk dua kali untuk tampil/sembunyikan kontrol. Tombol mata dicoret dan ketukan pada ruang hitam tetap tersedia. Koordinat memperhitungkan cermin dan ukuran renderer aspect-fit; pengirim menolak orientasi yang sudah berubah dan memakai meteringPointFactory PreviewView.
+- Kunci fokus dikonfirmasi melalui Future CameraX. Kunci pencahayaan mengikuti dukungan AE lock dan hanya dipakai saat exposure Auto. Menu menyediakan lepas kunci fokus serta kunci/buka kunci pencahayaan.
+- Roda gigi monitor mengatur Foto/Video, resolusi/FPS, ISO, shutter, dan WB numerik 2000–8000 K. Pilihan mengikuti kemampuan lensa. ISO dan shutter manual diisi berpasangan; Auto mengembalikan keduanya. Mode/format/manual diblokir selama rekaman atau pemrosesan. Kegagalan mode/format memulihkan pilihan sebelumnya.
+- Durasi monitor mengikuti VideoRecordEvent.Status dan indikator REC menunggu Start. Finalize menentukan berhasil/gagal menyimpan. Monitor menampilkan baterai kedua HP dan ruang kosong pengirim; status tetap terlihat saat panel disembunyikan. Status lama ditandai dan kontrol dinonaktifkan ketika tidak ada gambar/status terbaru.
+- Sambung ulang: jendela dua menit, token resume terpisah dari QR sekali pakai, pin sertifikat tetap diverifikasi, satu monitor aktif, tanpa penyimpanan kredensial ke disk. PeerConnection dan grant MediaProjection dipertahankan, ICE diulang setelah signaling tersambung lagi. Perintah shutter lama tidak diputar ulang.
+- Bug konfigurasi FPS ganda di VideoCapture dan SessionConfig ditemukan saat uji mode Video; FPS kini hanya ditetapkan di SessionConfig. Countdown mempertahankan snapshot lengkap, mencegah shutter ganda, dan dibatalkan ketika kamera ditutup.
+
+### Bukti uji
+
+| Pemeriksaan | Hasil |
+| --- | --- |
+| Build dan pemeriksaan akhir | assembleDebug, testDebugUnitTest, lintDebug lulus; 16 tes, 0 gagal, 0 error lint (41 warning) |
+| Koordinat fokus | Tes mencakup pembalikan X, renderer portrait di layar landscape, offset PreviewView, koordinat invalid dan view belum terukur |
+| Keamanan resume | Tes token QR berbeda dari resume, batas waktu, notifikasi putus berulang tidak memperpanjang jendela, dan sesi yang tersambung bisa mengalami gangguan lagi |
+| Pengaturan dua HP | realme pengirim → vivo monitor: ISO 200 dan pasangan shutter 1/30 s dikonfirmasi kembali; WB 5600 K dikonfirmasi; baterai dan ruang kosong tampil di monitor |
+| Recorder vivo | Rekam/Stop lokal berhasil setelah perbaikan FPS; klip 17.580 ms, 1920 × 1080, 44.313.534 byte terdaftar di MediaStore |
+| Kanal kontrol LAN ke vivo | `scripts/test-remote-camera.py`: autentikasi TLS dengan pin, telemetri, mode Video, Start, durasi, putus TCP mendadak, QR terpakai ditolak, resume terautentikasi, rekaman tetap berjalan, Stop dan Finalize berhasil |
+| Penghentian uji | MediaProjection vivo null setelah klien uji mengakhiri sesi |
+| APK | APK 0.4.0 dibuat dan dipasang di vivo. Pemasangan terakhir pada realme tersendat, lalu USB realme tidak kembali terdeteksi setelah ADB reconnect; pembaruan final realme masih menunggu USB pulih |
+
+### Batas verifikasi yang masih terbuka
+
+- Uji ulang realme pada build final, konfirmasi fokus/kunci fokus pada objek yang terlihat, dan pengujian gambar setelah perubahan pengaturan masih diperlukan. Konfirmasi request bukan pengukuran ketepatan warna atau fokus optik.
+- Uji pemulihan gambar WebRTC dan retry klien Android antardua HP setelah Wi-Fi diputus belum selesai. Tes komputer menguji kanal kontrol pengirim dan kelangsungan recorder, bukan penerima video WebRTC. Jangan menyatakan uji sambung ulang dua HP sudah lulus.
+- Proses/sesi pengirim harus tetap hidup dan alamat IP sama. Perubahan alamat, penghentian sesi, atau proses mati memerlukan QR baru.
+- Kelvin memakai pendekatan gain yang belum dikalibrasi per sensor. Dukungan format dan kontrol dibatasi API yang diekspos produsen.
+- Sumber layar yang benar-benar statis dapat memicu penanda tidak ada gambar terbaru. Uji sesi panjang, perubahan jaringan, perangkat lain, dan ukuran font besar belum dilakukan.

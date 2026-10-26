@@ -1,4 +1,30 @@
-# Mirror Selfie — Android Studio UI
+# Mirror Selfie
+
+Versi pengembangan terbaru: **0.4.0**. Pengirim dan monitor dapat dipilih pada kedua HP. Seluruh layar pengirim dibagikan melalui Wi-Fi atau hotspot lokal. Kontrol kamera terbaru menggunakan kamera di dalam Mirror Selfie dan tidak memerlukan Aksesibilitas.
+
+## Penggunaan versi 0.4
+
+1. Pasang APK yang sama pada kedua HP, lalu sambungkan ke Wi-Fi atau hotspot yang sama. Internet tidak diperlukan.
+2. Di pengirim pilih **Kirim layar → Mulai berbagi**, lalu setujui dialog Android.
+3. Di monitor pilih **Lihat layar → Pindai QR**. Alternatifnya, tempel kode koneksi lengkap. QR berlaku dua menit dan hanya dipakai untuk pemasangan awal.
+4. Di pengirim pilih **Buka kamera**. Foto/video tersimpan di pengirim melalui MediaStore, di `Pictures/MirrorSelfie` dan `Movies/MirrorSelfie`.
+5. Di monitor gunakan Foto/Rekam, atau roda gigi untuk pengaturan kamera. Putuskan sesi melalui tombol silang atau notifikasi pengirim.
+
+- Ketuk gambar untuk fokus; tahan untuk kunci fokus. Kunci pencahayaan ikut diterapkan bila didukung dan ISO/shutter Auto. Kamera mengonfirmasi hasil fokus.
+- Ketuk gambar **dua kali** untuk tampil/sembunyikan kontrol. Ruang hitam dan tombol mata dicoret juga bisa menyembunyikannya. Aspect-fit menjaga seluruh gambar terlihat.
+- Roda gigi membuka mode Foto/Video, kombinasi resolusi/FPS, ISO, shutter, WB Kelvin, lepas kunci fokus, dan kunci pencahayaan. Pilihan mengikuti kemampuan lensa; pengaturan mode/format/manual diblokir selama rekaman atau pemrosesan.
+- ISO dan shutter manual dipakai berpasangan. Saat baru satu dipilih, nilai pasangannya mengikuti pengukuran kamera terdekat yang didukung. Memilih Auto pada salah satunya mengembalikan keduanya ke otomatis.
+- WB menerima angka 2000–8000 K atau Auto bila tersedia. Konversi Kelvin ke gain masih pendekatan, belum dikalibrasi warna per sensor.
+- Status REC dan durasi berasal dari event recorder pengirim. Baterai kedua HP serta ruang kosong pengirim tetap terlihat saat panel kontrol disembunyikan.
+- Saat transport terputus, monitor mencoba menyambung ulang hingga dua menit. Sesi, PeerConnection, dan satu izin MediaProjection dipertahankan. Perintah kamera lama tidak dikirim ulang.
+- Jika gambar tidak diperbarui selama sekitar 2,5 detik, monitor meredupkan gambar dan menunggu pembaruan sebelum mengaktifkan kontrol. Layar sumber yang benar-benar statis juga dapat memunculkan penanda ini.
+- Sambung ulang membutuhkan proses/sesi pengirim tetap hidup dan alamat IP yang sama. Setelah sesi dihentikan, proses mati, atau alamat berubah, mulai sesi dan pindai QR baru.
+
+Progres dan batas pengujian terbaru: [PROGRESS.md](PROGRESS.md). APK: `app/build/outputs/apk/debug/app-debug.apk`.
+
+## Catatan historis prototipe 0.2
+
+Bagian berikut merekam pengujian lama memakai kamera OEM. Nama tombol dan metode Aksesibilitas di bagian ini tidak berlaku pada kamera internal versi terbaru.
 
 Kamera belakang realme RMX3393 menjadi sumber gambar; vivo V2131 menjadi monitor. Media dikirim langsung lewat jaringan lokal menggunakan WebRTC, tanpa login, server cloud, STUN, atau TURN.
 
@@ -33,6 +59,8 @@ Kontrol hanya berjalan dalam sesi pengirim aktif, dari monitor terautentikasi, s
 Rekam/Stop juga telah diuji dalam **mode Film** pilihan pengguna. Tombol Foto digunakan dalam mode FOTO, bukan untuk memotret di mode Film. Perpindahan FOTO/VIDEO menggunakan tap terbatas pada carousel realme RMX3393 dalam portrait; model, layout kamera, dan orientasi lain belum dijamin. Menutup paksa aplikasi melalui pengaturan/ADB dapat menonaktifkan layanan aksesibilitas sehingga perlu diaktifkan kembali.
 
 ## Indikator kecepatan
+
+Monitor menggunakan tampilan penuh tanpa header atau bingkai. Ketuk gambar atau area kosong untuk menyembunyikan/menampilkan kontrol; tombol mata dicoret juga menyembunyikannya. Foto/Rekam dan alat kamera berada di panel mengambang. Dalam landscape, panel berada di kanan bawah. Seluruh gambar pengirim tetap terlihat; ruang hitam dapat muncul jika rasio kedua layar berbeda.
 
 Frame rate menunjukkan kelancaran video. **RTT jaringan** yang tampil adalah waktu bolak-balik koneksi WebRTC, bukan latensi kamera-ke-monitor. Latensi end-to-end belum boleh disimpulkan dari RTT atau FPS; metode pengukuran terpisah ada di [TECHSTACK.md](TECHSTACK.md).
 
